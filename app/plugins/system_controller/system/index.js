@@ -42,6 +42,7 @@ ControllerSystem.prototype.onVolumioStart = function () {
   }
 
   this.commandRouter.sharedVars.addConfigValue('system.uuid', 'string', uuid);
+  // system.name is the RFC 1123 cleansed name for netbios, upnp etc
   this.commandRouter.sharedVars.addConfigValue('system.name', 'string', self.config.get('playerName'));
 
   self.deviceDetect();
@@ -220,25 +221,41 @@ ControllerSystem.prototype.saveGeneralSettings = function (data) {
     self.config.set('startupSound', data['startup_sound']);
   }
 
-  var oldPlayerName = self.config.get('playerName');
-  var player_name = data['player_name'];
-  if (player_name !== oldPlayerName) {
-    var hostname = data['player_name'].split(' ').join('-');
-    self.config.set('playerName', player_name);
-    self.commandRouter.pushToastMessage('success', self.commandRouter.getI18nString('SYSTEM.SYSTEM_CONFIGURATION_UPDATE'), self.commandRouter.getI18nString('SYSTEM.SYSTEM_CONFIGURATION_UPDATE_SUCCESS'));
-    self.setHostname(player_name);
-    self.commandRouter.sharedVars.set('system.name', player_name);
-    defer.resolve({});
-
+  const oldPlayerName = self.config.get('playerName');
+  const newPlayerName = data['player_name'];
+  let systemName;
+  if (newPlayerName !== oldPlayerName) {
+    self.config.set('playerName', newPlayerName);
+    const hostnameRegex = /^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9])$/;
+    let validHostname = newPlayerName.match(hostnameRegex);
+    if (validHostname && validHostname.includes(newPlayerName)) { // playerName === hostName
+      systemName = validHostname[0]; // Because of how the Regex works.
+      self.setHostname(systemName);
+      self.commandRouter.sharedVars.set('system.name', systemName);
+      self.commandRouter.pushToastMessage('success',
+        self.commandRouter.getI18nString('SYSTEM.SYSTEM_CONFIGURATION_UPDATE'),
+        self.commandRouter.getI18nString('SYSTEM.SYSTEM_CONFIGURATION_UPDATE_SUCCESS'));
+    } else { // playerName !== hostName
+      systemName = newPlayerName.split(' ').join('-');
+      if (!systemName.match(hostnameRegex).includes(systemName)) {
+        // defualt to volumio as last resort.
+        self.logger.info(`User requests player_name: <${newPlayerName}> => <${systemName}> ==> <volumio>`);
+        systemName = 'volumio';
+      }
+      self.setHostname(systemName);
+      self.commandRouter.sharedVars.set('system.name', systemName);
+      // TODO: Make a more generic PlayerName vs SystemName toast
+      self.commandRouter.pushToastMessage('warning',
+        self.commandRouter.getI18nString('SYSTEM.SYSTEM_NAME_ERROR'),
+        `${self.commandRouter.getI18nString('SYSTEM.SYSTEM_NAME_NOW')}  ${systemName}`);
+    }
     for (var i in self.callbacks) {
       var callback = self.callbacks[i];
-
-      callback.call(callback, player_name);
+      callback.call(callback, newPlayerName);
     }
   } else {
     defer.resolve({});
   }
-
   return defer.promise;
 };
 

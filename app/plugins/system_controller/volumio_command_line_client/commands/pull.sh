@@ -22,10 +22,10 @@ fi
 echo "Cloning Volumio Backend repo"
 if [ -n "$BRANCH" ]; then
     echo "Cloning branch $BRANCH from repository $REPO"
-    git clone -b "$BRANCH" "$REPO" /volumio
+    git clone -b "$BRANCH" "$REPO" /volumio --depth=50
 else
     echo "Cloning master from repository $REPO"
-    git clone "$REPO" /volumio
+    git clone "$REPO" /volumio --depth=50
 fi
 echo "Copying Modules"
 cp -rp /volumio-current/node_modules /volumio/node_modules

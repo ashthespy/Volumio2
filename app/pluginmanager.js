@@ -1,19 +1,22 @@
 'use strict';
+/* eslint camelcase: "off" */
 
+const path = require('path');
+const url = require('url');
 var fs = require('fs-extra');
 var HashMap = require('hashmap');
 var libFast = require('fast.js');
-var S = require('string');
 var vconf = require('v-conf');
 var libQ = require('kew');
 var http = require('http');
 var execSync = require('child_process').execSync;
+var exec = require('child_process').execSync;
 var Tail = require('tail').Tail;
 var compareVersions = require('compare-versions');
 
 var arch = '';
 var variant = '';
-var device = '';
+// var device = '';
 
 module.exports = PluginManager;
 
@@ -30,14 +33,14 @@ function PluginManager (ccommand, server) {
     }
   });
 
-  self.pluginPath = [__dirname + '/plugins/', '/data/plugins/'];
+  self.pluginPath = [path.join(__dirname, `plugins`), '/data/plugins/'];
 
   self.config = new (require('v-conf'))();
 
   var pluginsDataFile = '/data/configuration/plugins.json';
   if (!fs.existsSync(pluginsDataFile)) {
     ccommand.logger.info('File /data/configuration/plugins.json does not exist. Copying from Volumio');
-    fs.copySync(__dirname + '/plugins/plugins.json', pluginsDataFile);
+    fs.copySync(path.join(__dirname, 'plugins/plugins.json'), pluginsDataFile);
   }
 
   self.config.loadFile(pluginsDataFile);
@@ -46,7 +49,7 @@ function PluginManager (ccommand, server) {
   self.websocketServer = server;
   self.logger = ccommand.logger;
 
-  self.configManager = new (require(__dirname + '/configManager.js'))(self.logger);
+  self.configManager = new (require(path.join(__dirname, 'configManager.js')))(self.logger);
 
   self.configurationFolder = '/data/configuration/';
 
@@ -57,15 +60,15 @@ function PluginManager (ccommand, server) {
   for (var l in file) {
     if (file[l].match(/VOLUMIO_VARIANT/i)) {
       var str = file[l].split('=');
-      variant = str[1].replace(/\"/gi, '');
+      variant = str[1].replace(/"/gi, '');
       // TEMPORARY UNTIL MYVOLUMIO GETS MERGED
       if (variant === 'myvolumio') {
         variant = 'volumio';
       }
     }
     if (file[l].match(/VOLUMIO_HARDWARE/i)) {
-      var str = file[l].split('=');
-      var device = str[1].replace(/\"/gi, '');
+      str = file[l].split('=');
+      // var device = str[1].replace(/"/gi, '');
     }
   }
 }
@@ -89,18 +92,18 @@ PluginManager.prototype.startPlugins = function () {
 PluginManager.prototype.initializeConfiguration = function (package_json, pluginInstance, folder) {
   var self = this;
 
-  if (pluginInstance.getConfigurationFiles != undefined) {
-    var configFolder = self.configurationFolder + package_json.volumio_info.plugin_type + '/' + package_json.name + '/';
+  if (pluginInstance.getConfigurationFiles !== undefined) {
+    var configFolder = path.join(self.configurationFolder, package_json.volumio_info.plugin_type, package_json.name);
 
     var configurationFiles = pluginInstance.getConfigurationFiles();
     for (var i in configurationFiles) {
       var configurationFile = configurationFiles[i];
 
-      var destConfigurationFile = configFolder + configurationFile;
+      var destConfigurationFile = path.join(configFolder, configurationFile);
       if (!fs.existsSync(destConfigurationFile)) {
-        fs.copySync(folder + '/' + configurationFile, destConfigurationFile);
+        fs.copySync(path.join(folder, configurationFile), destConfigurationFile);
       } else {
-        var requiredConfigParametersFile = folder + '/requiredConf.json';
+        var requiredConfigParametersFile = path.join(folder, 'requiredConf.json');
         if (fs.existsSync(requiredConfigParametersFile)) {
           self.logger.info('Applying required configuration parameters for plugin ' + package_json.name);
           self.checkRequiredConfigurationParameters(requiredConfigParametersFile, destConfigurationFile);
@@ -122,17 +125,17 @@ PluginManager.prototype.loadCorePlugin = function (folder) {
   var key = category + '.' + name;
   var configForPlugin = self.config.get(key + '.enabled');
 
-  var shallStartup = configForPlugin != undefined && configForPlugin == true;
-  if (shallStartup == true) {
-    self.logger.info('Loading plugin \"' + name + '\"...');
+  var shallStartup = configForPlugin !== undefined && configForPlugin === true;
+  if (shallStartup === true) {
+    self.logger.info(`Loading plugin "${name}"...`);
 
     var pluginInstance = null;
-    var context = new (require(__dirname + '/pluginContext.js'))(self.coreCommand, self.websocketServer, self.configManager);
+    var context = new (require(path.join(__dirname, 'pluginContext.js')))(self.coreCommand, self.websocketServer, self.configManager);
     context.setEnvVariable('category', category);
     context.setEnvVariable('name', name);
 
     try {
-      pluginInstance = new (require(folder + '/' + package_json.main))(context);
+      pluginInstance = new (require(path.join(folder, package_json.main)))(context);
       self.initializeConfiguration(package_json, pluginInstance, folder);
     } catch (e) {
       self.logger.error('!!!! WARNING !!!!');
@@ -153,7 +156,7 @@ PluginManager.prototype.loadCorePlugin = function (folder) {
     if (pluginInstance && pluginInstance.onVolumioStart !== undefined) {
       var myPromise = pluginInstance.onVolumioStart();
 
-      if (Object.prototype.toString.call(myPromise) != Object.prototype.toString.call(libQ.resolve())) {
+      if (Object.prototype.toString.call(myPromise) !== Object.prototype.toString.call(libQ.resolve())) {
         // Handle non-compliant onVolumioStart(): push an error message and disable plugin
         // self.coreCommand.pushToastMessage('error',name + " Plugin","This plugin has failing init routine. Please install updated version, or contact plugin developper");
         self.logger.error('ATTENTION!!!: Plugin ' + name + ' does not return adequate promise from onVolumioStart: please update!');
@@ -169,7 +172,7 @@ PluginManager.prototype.loadCorePlugin = function (folder) {
       defer.resolve();
     }
   } else {
-	 	self.logger.info('Plugin ' + name + ' is not enabled');
+    self.logger.info('Plugin ' + name + ' is not enabled');
     defer.resolve();
   }
 
@@ -188,7 +191,7 @@ PluginManager.prototype.loadCorePlugins = function () {
     if (fs.existsSync(folder)) {
       var pluginsFolder = fs.readdirSync(folder);
       for (var i in pluginsFolder) {
-        var groupfolder = folder + '/' + pluginsFolder[i];
+        var groupfolder = path.join(folder, pluginsFolder[i]);
 
         var stats = fs.statSync(groupfolder);
         if (stats.isDirectory()) {
@@ -197,15 +200,15 @@ PluginManager.prototype.loadCorePlugins = function () {
             var subfolder = folderContents[j];
 
             // loading plugin package.json
-            var pluginFolder = groupfolder + '/' + subfolder;
+            var pluginFolder = path.join(groupfolder, subfolder);
 
             var package_json = self.getPackageJson(pluginFolder);
             if (package_json !== undefined) {
               var boot_priority = package_json.volumio_info.boot_priority;
-              if (boot_priority == undefined) { boot_priority = 100; }
+              if (boot_priority === undefined) { boot_priority = 100; }
 
               var plugin_array = priority_array.get(boot_priority);
-              if (plugin_array == undefined) { plugin_array = []; }
+              if (plugin_array === undefined) { plugin_array = []; }
 
               plugin_array.push(pluginFolder);
               priority_array.set(boot_priority, plugin_array);
@@ -222,13 +225,13 @@ PluginManager.prototype.loadCorePlugins = function () {
 
   /*
     each plugin's onVolumioStart() is launched by priority order.
-	Note: there is no resolution strategy: each plugin completes
-	at it's own pace, and in whatever order.
-	Should completion order matter, a new promise strategy should be
-	implemented below (chain by boot-priority order, or else...)
+    Note: there is no resolution strategy: each plugin completes
+    at it's own pace, and in whatever order.
+    Should completion order matter, a new promise strategy should be
+    implemented below (chain by boot-priority order, or else...)
 */
   priority_array.forEach(function (plugin_array) {
-    if (plugin_array != undefined) {
+    if (plugin_array !== undefined) {
       plugin_array.forEach(function (folder) {
         defer_loadList.push(self.loadCorePlugin(folder));
       });
@@ -252,7 +255,7 @@ PluginManager.prototype.loadMyVolumioPlugins = function () {
     if (fs.existsSync(folder)) {
       var pluginsFolder = fs.readdirSync(folder);
       for (var i in pluginsFolder) {
-        var groupfolder = folder + '/' + pluginsFolder[i];
+        var groupfolder = path.join(folder, pluginsFolder[i]);
 
         var stats = fs.statSync(groupfolder);
         if (stats.isDirectory()) {
@@ -261,15 +264,15 @@ PluginManager.prototype.loadMyVolumioPlugins = function () {
             var subfolder = folderContents[j];
 
             // loading plugin package.json
-            var pluginFolder = groupfolder + '/' + subfolder;
+            var pluginFolder = path.join(groupfolder, subfolder);
 
             var package_json = self.getPackageJson(pluginFolder);
             if (package_json !== undefined) {
               var boot_priority = package_json.volumio_info.boot_priority;
-              if (boot_priority == undefined) { boot_priority = 100; }
+              if (boot_priority === undefined) { boot_priority = 100; }
 
               var plugin_array = priority_array.get(boot_priority);
-              if (plugin_array == undefined) { plugin_array = []; }
+              if (plugin_array === undefined) { plugin_array = []; }
 
               plugin_array.push(pluginFolder);
               priority_array.set(boot_priority, plugin_array);
@@ -291,7 +294,7 @@ PluginManager.prototype.loadMyVolumioPlugins = function () {
         implemented below (chain by boot-priority order, or else...)
     */
   priority_array.forEach(function (plugin_array) {
-    if (plugin_array != undefined) {
+    if (plugin_array !== undefined) {
       plugin_array.forEach(function (folder) {
         defer_loadList.push(self.loadMyVolumioPlugin(folder));
       });
@@ -310,15 +313,15 @@ PluginManager.prototype.loadMyVolumioPlugin = function (folder) {
   var name = package_json.name;
   var key = category + '.' + name;
 
-  self.logger.info('Loading plugin \"' + name + '\"...');
+  self.logger.info(`Loading plugin "${name}"...`);
 
   var pluginInstance = null;
-  var context = new (require(__dirname + '/pluginContext.js'))(self.coreCommand, self.websocketServer, self.configManager);
+  var context = new (require(path.join(__dirname, 'pluginContext.js')))(self.coreCommand, self.websocketServer, self.configManager);
   context.setEnvVariable('category', category);
   context.setEnvVariable('name', name);
 
   try {
-    pluginInstance = new (require(folder + '/' + package_json.main))(context);
+    pluginInstance = new (require(path.join(folder, package_json.main)))(context);
     self.initializeConfiguration(package_json, pluginInstance, folder);
   } catch (e) {
     self.logger.error('!!!! WARNING !!!!');
@@ -338,7 +341,7 @@ PluginManager.prototype.loadMyVolumioPlugin = function (folder) {
   if (pluginInstance && pluginInstance.onVolumioStart !== undefined) {
     var myPromise = pluginInstance.onVolumioStart();
 
-    if (Object.prototype.toString.call(myPromise) != Object.prototype.toString.call(libQ.resolve())) {
+    if (Object.prototype.toString.call(myPromise) !== Object.prototype.toString.call(libQ.resolve())) {
       // Handle non-compliant onVolumioStart(): push an error message and disable plugin
       // self.coreCommand.pushToastMessage('error',name + " Plugin","This plugin has failing init routine. Please install updated version, or contact plugin developper");
       self.logger.error('ATTENTION!!!: Plugin ' + name + ' does not return adequate promise from onVolumioStart: please update!');
@@ -386,7 +389,7 @@ PluginManager.prototype.startMyVolumioPlugin = function (category, name) {
       var myPromise = plugin.onStart();
       // self.config.set(category + '.' + name + '.status', "STARTED");
 
-      if (Object.prototype.toString.call(myPromise) != Object.prototype.toString.call(libQ.resolve())) {
+      if (Object.prototype.toString.call(myPromise) !== Object.prototype.toString.call(libQ.resolve())) {
         // Handle non-compliant onStart(): push an error message and disable plugin
         // self.coreCommand.pushToastMessage('error',name + " Plugin","This plugin has failing start routine. Please install updated version, or contact plugin developper");
         self.logger.error('Plugin ' + name + ' does not return adequate promise from onStart: please update!');
@@ -427,10 +430,10 @@ PluginManager.prototype.stopMyVolumioPlugins = function () {
 };
 
 PluginManager.prototype.getPackageJson = function (folder) {
-  var self = this;
+  // var self = this;
 
   try {
-    return fs.readJsonSync(folder + '/package.json');
+    return fs.readJsonSync(path.join(folder, 'package.json'));
   } catch (ex) {
 
   }
@@ -450,10 +453,10 @@ PluginManager.prototype.startCorePlugin = function (category, name) {
 
   if (plugin) {
     if (plugin.onStart !== undefined) {
-		    var myPromise = plugin.onStart();
+      var myPromise = plugin.onStart();
       self.config.set(category + '.' + name + '.status', 'STARTED');
 
-      if (Object.prototype.toString.call(myPromise) != Object.prototype.toString.call(libQ.resolve())) {
+      if (Object.prototype.toString.call(myPromise) !== Object.prototype.toString.call(libQ.resolve())) {
         // Handle non-compliant onStart(): push an error message and disable plugin
         self.coreCommand.pushToastMessage('error', name + ' Plugin', self.coreCommand.getI18nString('PLUGINS.PLUGIN_START_ERROR'));
         self.logger.error('Plugin ' + name + ' does not return adequate promise from onStart: please update!');
@@ -483,7 +486,7 @@ PluginManager.prototype.startPlugin = function (category, name) {
       var myPromise = plugin.onStart();
       self.config.set(category + '.' + name + '.status', 'STARTED');
 
-      if (Object.prototype.toString.call(myPromise) != Object.prototype.toString.call(libQ.resolve())) {
+      if (Object.prototype.toString.call(myPromise) !== Object.prototype.toString.call(libQ.resolve())) {
         // Handle non-compliant onStart(): push an error message and disable plugin
         self.coreCommand.pushToastMessage('error', name + ' Plugin', self.coreCommand.getI18nString('PLUGINS.PLUGIN_START_ERROR'));
         self.logger.error('Plugin ' + name + ' does not return adequate promise from onStart: please update!');
@@ -512,7 +515,7 @@ PluginManager.prototype.stopPlugin = function (category, name) {
       var myPromise = plugin.onStop();
       self.config.set(category + '.' + name + '.status', 'STOPPED');
 
-      if (Object.prototype.toString.call(myPromise) != Object.prototype.toString.call(libQ.resolve())) {
+      if (Object.prototype.toString.call(myPromise) !== Object.prototype.toString.call(libQ.resolve())) {
         // Handle non-compliant onStop(): push an error message and disable plugin
         // self.coreCommand.pushToastMessage('error' , name + ' Plugin', self.coreCommand.getI18nString('PLUGINS.PLUGIN_START_ERROR'));
         self.logger.error('Plugin ' + name + ' does not return adequate promise from onStop: please update!');
@@ -538,10 +541,10 @@ PluginManager.prototype.startCorePlugins = function () {
 
   /*
     each plugin's onStart() is launched following plugins.json order.
-	Note: there is no resolution strategy: each plugin completes
-	at it's own pace, and in whatever order.
-	Should completion order matter, a new promise strategy should be
-	implemented below (chain by start order, or else...)
+    Note: there is no resolution strategy: each plugin completes
+    at it's own pace, and in whatever order.
+    Should completion order matter, a new promise strategy should be
+    implemented below (chain by start order, or else...)
 */
 
   self.corePlugins.forEach(function (value, key) {
@@ -559,10 +562,10 @@ PluginManager.prototype.stopPlugins = function () {
 
   /*
     each plugin's onStop() is launched following plugins.json order.
-	Note: there is no resolution strategy: each plugin completes
-	at it's own pace, and in whatever order.
-	Should completion order matter, a new promise strategy should be
-	implemented below (chain by start order, or else...)
+    Note: there is no resolution strategy: each plugin completes
+    at it's own pace, and in whatever order.
+    Should completion order matter, a new promise strategy should be
+    implemented below (chain by start order, or else...)
 */
 
   self.corePlugins.forEach(function (value, key) {
@@ -580,13 +583,13 @@ PluginManager.prototype.getPluginCategories = function () {
   var values = self.corePlugins.values();
   for (var i in values) {
     var metadata = values[i];
-    if (libFast.indexOf(categories, metadata.category) == -1) { categories.push(metadata.category); }
+    if (libFast.indexOf(categories, metadata.category) === -1) { categories.push(metadata.category); }
   }
 
   values = self.myVolumioPlugins.values();
-  for (var i in values) {
-    var metadata = values[i];
-    if (libFast.indexOf(categories, metadata.category) == -1) { categories.push(metadata.category); }
+  for (i in values) {
+    metadata = values[i];
+    if (libFast.indexOf(categories, metadata.category) === -1) { categories.push(metadata.category); }
   }
 
   return categories;
@@ -600,13 +603,13 @@ PluginManager.prototype.getPluginNames = function (category) {
   var values = self.corePlugins.values();
   for (var i in values) {
     var metadata = values[i];
-    if (metadata.category == category) { names.push(metadata.name); }
+    if (metadata.category === category) { names.push(metadata.name); }
   }
 
   values = self.myVolumioPlugins.values();
-  for (var i in values) {
-    var metadata = values[i];
-    if (metadata.category == category) { names.push(metadata.name); }
+  for (i in values) {
+    metadata = values[i];
+    if (metadata.category === category) { names.push(metadata.name); }
   }
 
   return names;
@@ -618,12 +621,12 @@ PluginManager.prototype.getPluginNames = function (category) {
  * @returns {Array}
  */
 PluginManager.prototype.getAllPlugNames = function (category) {
-  var self = this;
+  // var self = this;
 
   var plugFile = fs.readJsonSync(('/data/configuration/plugins.json'), 'utf-8', {throws: false});
   var plugins = [];
   for (var i in plugFile) {
-    if (i == category) {
+    if (i === category) {
       for (var j in plugFile[i]) {
         plugins.push(j);
       }
@@ -664,11 +667,11 @@ PluginManager.prototype.onVolumioShutdown = function () {
   self.logger.info('___________ PLUGINS: Run Shutdown Tasks ___________');
 
   /*
-	each plugin's onVolumioShutdown() is launched following plugins.json order.
-	Note: there is no resolution strategy: each plugin completes
-	at it's own pace, and in whatever order.
-	Should completion order matter, a new promise strategy should be
-	implemented below (chain by start order, or else...)
+  each plugin's onVolumioShutdown() is launched following plugins.json order.
+  Note: there is no resolution strategy: each plugin completes
+  at it's own pace, and in whatever order.
+  Should completion order matter, a new promise strategy should be
+  implemented below (chain by start order, or else...)
 */
 
   self.corePlugins.forEach(function (value, key) {
@@ -692,7 +695,7 @@ PluginManager.prototype.onVolumioShutdownPlugin = function (category, name) {
       self.logger.info('PLUGIN onShutdown : ' + name);
       var myPromise = plugin.onVolumioShutdown();
 
-      if (Object.prototype.toString.call(myPromise) != Object.prototype.toString.call(libQ.resolve())) {
+      if (Object.prototype.toString.call(myPromise) !== Object.prototype.toString.call(libQ.resolve())) {
         // Handle non-compliant onVolumioShutdown(): push an error message
         // self.coreCommand.pushToastMessage('error' , name + ' Plugin', self.coreCommand.getI18nString('PLUGINS.PLUGIN_START_ERROR'));
         self.logger.error('Plugin ' + name + ' does not return adequate promise from onVolumioShutdown: please update!');
@@ -711,11 +714,11 @@ PluginManager.prototype.onVolumioReboot = function () {
   var defer_onRebootList = [];
   self.logger.info('___________ PLUGINS: Run onVolumioReboot Tasks ___________');
   /*
-	each plugin's onVolumioReboot() is launched following plugins.json order.
-	Note: there is no resolution strategy: each plugin completes
-	at it's own pace, and in whatever order.
-	Should completion order matter, a new promise strategy should be
-	implemented below (chain by start order, or else...)
+  each plugin's onVolumioReboot() is launched following plugins.json order.
+  Note: there is no resolution strategy: each plugin completes
+  at it's own pace, and in whatever order.
+  Should completion order matter, a new promise strategy should be
+  implemented below (chain by start order, or else...)
 */
 
   self.corePlugins.forEach(function (value, key) {
@@ -737,7 +740,7 @@ PluginManager.prototype.onVolumioRebootPlugin = function (category, name) {
     if (plugin.onVolumioReboot !== undefined) {
       self.logger.info('PLUGIN onReboot : ' + name);
       var myPromise = plugin.onVolumioReboot();
-      if (Object.prototype.toString.call(myPromise) != Object.prototype.toString.call(libQ.resolve())) {
+      if (Object.prototype.toString.call(myPromise) !== Object.prototype.toString.call(libQ.resolve())) {
         // Handle non-compliant onVolumioReboot(): push an error message
         // self.coreCommand.pushToastMessage('error' , name + ' Plugin', self.coreCommand.getI18nString('PLUGINS.PLUGIN_START_ERROR'));
         self.logger.error('Plugin ' + name + ' does not return adequate promise from onVolumioReboot: please update!');
@@ -767,16 +770,21 @@ PluginManager.prototype.getPlugin = function (category, name) {
  */
 PluginManager.prototype.getConfigurationFile = function (context, fileName) {
   var self = this;
-  return S(self.configurationFolder).ensureRight('/').s +
-		S(context.getEnvVariable('category')).ensureRight('/').s +
-		S(context.getEnvVariable('name')).ensureRight('/').s +
-		fileName;
+  return path.join(self.configurationFolder,
+    context.getEnvVariable('category'),
+    context.getEnvVariable('name'),
+    fileName);
+  // return S(self.configurationFolder).ensureRight('/').s +
+  // S(context.getEnvVariable('category')).ensureRight('/').s +
+  // S(context.getEnvVariable('name')).ensureRight('/').s +
+  // fileName;
 };
 
 PluginManager.prototype.checkRequiredConfigurationParameters = function (requiredFile, configFile) {
-  var self = this;
+  // var self = this;
 
   // loading config file
+  /* eslint-disable-next-line new-cap */
   var configJson = new (vconf)();
   configJson.loadFile(configFile);
 
@@ -803,7 +811,7 @@ PluginManager.prototype.installPlugin = function (url) {
   self.logger.info(currentMessage);
   advancedlog = currentMessage;
 
-  if (droppedFile == url) {
+  if (droppedFile === url) {
     downloadCommand = "/usr/bin/wget -O /tmp/downloaded_plugin.zip '" + url + "'";
   } else {
     downloadCommand = '/bin/mv /tmp/plugins/' + droppedFile + ' /tmp/downloaded_plugin.zip';
@@ -863,10 +871,11 @@ PluginManager.prototype.installPlugin = function (url) {
           var logfile = '/tmp/installog';
 
           fs.ensureFile(logfile, function (err) {
+            if (err) console.log(err);
             var tail = new Tail(logfile);
 
             tail.on('line', function (data) {
-              if (data == 'plugininstallend') {
+              if (data === 'plugininstallend') {
                 console.log('Plugin install end detected on script');
                 tail.unwatch();
               } else {
@@ -890,9 +899,11 @@ PluginManager.prototype.installPlugin = function (url) {
           currentMessage = 'Plugin Successfully Installed';
           advancedlog = advancedlog + '<br>' + currentMessage;
 
+          /* eslint-disable no-unused-vars */
           var package_json = self.getPackageJson(folder);
           var name = package_json.name;
           var category = package_json.volumio_info.plugin_type;
+          /* eslint-enable no-unused-vars */
 
           self.pushMessage('installPluginStatus', {'progress': 100, 'message': currentMessage, 'title': modaltitle + ' Completed', 'advancedLog': advancedlog, 'buttons': [{'name': 'Close', 'class': 'btn btn-warning'}]});
           return folder;
@@ -937,7 +948,7 @@ PluginManager.prototype.updatePlugin = function (data) {
   self.logger.info(currentMessage);
   advancedlog = currentMessage;
 
-  if (droppedFile == url) {
+  if (droppedFile === url) {
     downloadCommand = "/usr/bin/wget -O /tmp/downloaded_plugin.zip '" + url + "'";
   } else {
     downloadCommand = '/bin/mv /tmp/plugins/' + droppedFile + ' /tmp/downloaded_plugin.zip';
@@ -994,10 +1005,11 @@ PluginManager.prototype.updatePlugin = function (data) {
           var logfile = '/tmp/installog';
 
           fs.ensureFile(logfile, function (err) {
+            if (err) console.log(err);
             var tail = new Tail(logfile);
 
             tail.on('line', function (data) {
-              if (data == 'plugininstallend') {
+              if (data === 'plugininstallend') {
                 console.log('Plugin install end detected on script');
                 tail.unwatch();
               } else {
@@ -1020,9 +1032,11 @@ PluginManager.prototype.updatePlugin = function (data) {
           currentMessage = 'Plugin Successfully Installed';
           advancedlog = advancedlog + '<br>' + currentMessage;
 
+          /* eslint-disable no-unused-vars */
           var package_json = self.getPackageJson(folder);
           var name = package_json.name;
           var category = package_json.volumio_info.plugin_type;
+          /* eslint-enable no-unused-vars */
 
           self.pushMessage('installPluginStatus', {'progress': 100, 'message': currentMessage, 'title': modaltitle + ' Completed', 'advancedLog': advancedlog, 'buttons': [{'name': 'Close', 'class': 'btn btn-warning'}]});
           return folder;
@@ -1089,11 +1103,11 @@ PluginManager.prototype.tempCleanup = function () {
 };
 
 PluginManager.prototype.createFolder = function (folder) {
-  var self = this;
+  // var self = this;
   var defer = libQ.defer();
 
   fs.mkdirs(folder, function (err) {
-    if (err) defer.reject(new Error('Error creating folder: ' + e));
+    if (err) defer.reject(new Error('Error creating folder: ' + err));
     else {
       defer.resolve(folder);
     }
@@ -1161,7 +1175,7 @@ PluginManager.prototype.moveToCategory = function (folder) {
 
   var newFolderName = self.pluginPath[1] + category;
 
-  fs.remove(newFolderName + '/' + name, function () {
+  fs.remove(path.join(newFolderName, name), function () {
     self.createFolder(newFolderName)
       .then(exec('/bin/mv ' + folder + ' ' + newFolderName, function (error, stdout, stderr) {
         if (error !== null) {
@@ -1273,7 +1287,7 @@ PluginManager.prototype.pluginFolderCleanup = function () {
     var categories = fs.readdirSync(self.pluginPath[i]);
 
     for (var j in categories) {
-      var catFile = self.pluginPath[i] + '/' + categories[j];
+      var catFile = path.join(self.pluginPath[i], categories[j]);
       self.logger.info('Scanning category ' + categories[j]);
 
       if (fs.statSync(catFile).isDirectory()) {
@@ -1281,14 +1295,14 @@ PluginManager.prototype.pluginFolderCleanup = function () {
 
         for (var k in plugins) {
           var pluginName = plugins[k];
-          var pluginFile = catFile + '/' + pluginName;
+          var pluginFile = path.join(catFile, pluginName);
 
           if (fs.statSync(pluginFile).isDirectory()) {
             if (self.config.has(categories[j] + '.' + pluginName)) {
               self.logger.debug('Plugin ' + pluginName + ' found. Leaving it untouched.');
             } else {
               self.logger.info('Plugin ' + pluginName + ' found in folder but missing in configuration. Removing folder.');
-              fs.removeSync(self.pluginPath[i] + '/' + categories[j] + '/' + pluginName);
+              fs.removeSync(path.join(self.pluginPath[i], categories[j], pluginName));
             }
           } else {
             self.logger.info('Removing ' + pluginFile);
@@ -1296,7 +1310,7 @@ PluginManager.prototype.pluginFolderCleanup = function () {
           }
         }
 
-        if (plugins.length == 0) {
+        if (plugins.length === 0) {
           fs.removeSync(catFile);
         }
       } else {
@@ -1414,7 +1428,7 @@ PluginManager.prototype.modifyPluginStatus = function (category, name, status) {
   var key = category + '.' + name;
   var isEnabled = self.config.get(key + '.enabled');
 
-  if (isEnabled == false) { defer.reject(new Error()); } else {
+  if (isEnabled === false) { defer.reject(new Error()); } else {
     self.logger.info('Changing plugin ' + name + ' status to ' + status);
 
     var keyStatus = key + '.status';
@@ -1514,10 +1528,11 @@ PluginManager.prototype.getInstalledPlugins = function () {
               if (package_json.volumio_info.icon) {
                 icon = package_json.volumio_info.icon;
               }
+              var prettyName;
               if (package_json.volumio_info.prettyName) {
-                var prettyName = package_json.volumio_info.prettyName;
+                prettyName = package_json.volumio_info.prettyName;
               } else {
-                var prettyName = name;
+                prettyName = name;
               }
 
               response.push({
@@ -1543,15 +1558,15 @@ PluginManager.prototype.getInstalledPlugins = function () {
 PluginManager.prototype.getAvailablePlugins = function () {
   var self = this;
   var defer = libQ.defer();
-  var response = libQ.defer();
+  // var response = libQ.defer();
 
   var myplugins = [];
-  var response = [];
+  // var response = [];
 
-  var url = 'http://plugins.volumio.org/plugins/' + variant + '/' + arch + '/plugins.json';
+  var pluginRegistry = url.resolve('http://plugins.volumio.org/plugins/', variant, arch, 'plugins.json');
   var installed = self.getInstalledPlugins();
 
-  if (installed != undefined) {
+  if (installed !== undefined) {
     installed.then(function (installedPlugins) {
       for (var e = 0; e < installedPlugins.length; e++) {
         var pluginpretty = {'prettyName': installedPlugins[e].prettyName, 'version': installedPlugins[e].version, 'category': installedPlugins[e].category};
@@ -1560,7 +1575,7 @@ PluginManager.prototype.getAvailablePlugins = function () {
     });
   }
 
-  http.get(url, function (res) {
+  http.get(pluginRegistry, function (res) {
     var body = '';
     if (res.statusCode > 300 && res.statusCode < 400 && res.headers.location) {
       // self.logger.info("Following Redirect to: " + res.headers.location);
@@ -1604,7 +1619,7 @@ PluginManager.prototype.getAvailablePlugins = function () {
       for (var a = 0; a < plugins.length; a++) {
         var availableName = plugins[a].prettyName;
         var availableVersion = plugins[a].version;
-        var availableCategory = plugins[a].category;
+        // var availableCategory = plugins[a].category;
         var thisPlugin = plugins[a];
         thisPlugin.installed = false;
         for (var c = 0; c < myplugins.length; c++) {
@@ -1628,15 +1643,15 @@ PluginManager.prototype.getAvailablePlugins = function () {
 PluginManager.prototype.getPluginDetails = function (data) {
   var self = this;
   var defer = libQ.defer();
-  var responseData = '';
+  // var responseData = '';
 
-  var response = [];
-  var url = 'http://plugins.volumio.org/plugins/' + variant + '/' + arch + '/plugins.json';
+  // var response = [];
+  var pluginRegistry = url.resolve('http://plugins.volumio.org/plugins/', variant, arch, 'plugins.json');
 
-  var pluginCategory = data.category;
+  // var pluginCategory = data.category;
   var pluginName = data.name;
 
-  http.get(url, function (res) {
+  http.get(pluginRegistry, function (res) {
     var body = '';
     if (res.statusCode > 300 && res.statusCode < 400 && res.headers.location) {
       self.logger.info('Following Redirect to: ' + res.headers.location);
@@ -1675,19 +1690,19 @@ PluginManager.prototype.getPluginDetails = function (data) {
   });
 
   function searchDetails (response) {
-    var self = this;
+    // var self = this;
     for (var i = 0; i < response.categories.length; i++) {
       var category = response.categories[i];
       var categoryName = response.categories[i].name;
-      if (categoryName == data.category) {
+      if (categoryName === data.category) {
         for (var c = 0; c < category.plugins.length; c++) {
           var plugin = category.plugins[c];
           var name = category.plugins[c].name;
           var prettyname = category.plugins[c].prettyName;
-          if (name == pluginName) {
+          if (name === pluginName) {
             var details = 'No Details available for plugin ' + prettyname + '.';
             if (plugin.details) {
-              var details = plugin.details;
+              details = plugin.details;
             }
             pushDetails(details, prettyname);
           }
@@ -1769,15 +1784,16 @@ PluginManager.prototype.findPluginFolder = function (category, name) {
 
 PluginManager.prototype.getPrettyName = function (package_json) {
   if (package_json.volumio_info !== undefined &&
-		package_json.volumio_info.prettyName !== undefined) { return package_json.volumio_info.prettName; } else return package_json.name;
+    package_json.volumio_info.prettyName !== undefined) { return package_json.volumio_info.prettName; } else return package_json.name;
 };
 
 PluginManager.prototype.checkIndex = function () {
   var self = this;
+  /* eslint-disable-next-line new-cap */
   var coreConf = new (vconf)();
   var defer = libQ.defer();
 
-  coreConf.loadFile(__dirname + '/plugins/plugins.json');
+  coreConf.loadFile(path.join(__dirname, '/plugins/plugins.json'));
 
   // checking that all key exist
   var categories = coreConf.getKeys();
@@ -1799,13 +1815,13 @@ PluginManager.prototype.checkIndex = function () {
   }
 
   categories = self.config.getKeys();
-  for (var i in categories) {
-    var category = categories[i];
+  for (i in categories) {
+    category = categories[i];
 
-    var plugins = self.config.getKeys(category);
-    for (var k in plugins) {
-      var plugin = plugins[k];
-      var key = category + '.' + plugin;
+    plugins = self.config.getKeys(category);
+    for (k in plugins) {
+      plugin = plugins[k];
+      key = category + '.' + plugin;
 
       var plugin_exists = false;
       for (var d in self.pluginPath) {
@@ -1813,7 +1829,7 @@ PluginManager.prototype.checkIndex = function () {
         plugin_exists = plugin_exists | (package_json !== undefined);
       }
 
-      if (plugin_exists == false) {
+      if (plugin_exists === false) {
         self.logger.info('Configured plugin ' + category + '/' + plugin + ' cannot be loaded. Removing from configuration');
         self.config.delete(key + '.enabled');
         self.config.delete(key + '.status');
@@ -1831,14 +1847,14 @@ PluginManager.prototype.addMyMusicPlugin = function (pluginInfo) {
   try {
     self.logger.info('Adding plugin ' + pluginInfo.name + ' to MyMusic Plugins');
     var plugin = {
-        	'prettyName': pluginInfo.volumio_info.prettyName,
-        	'name': pluginInfo.name,
+      'prettyName': pluginInfo.volumio_info.prettyName,
+      'name': pluginInfo.name,
       'category': pluginInfo.volumio_info.plugin_type,
       'hasConfiguration': pluginInfo.volumio_info.has_configuration
     };
     self.myMusicPlugins.push(plugin);
   } catch (e) {
-    	self.logger.error('Cannot add ' + pluginInfo.name + ' to MyMusic Plugins, error: ' + e);
+    self.logger.error('Cannot add ' + pluginInfo.name + ' to MyMusic Plugins, error: ' + e);
   }
 };
 
@@ -1847,7 +1863,7 @@ PluginManager.prototype.getMyMusicPlugins = function () {
   var defer = libQ.defer();
 
   for (var i in self.myMusicPlugins) {
-    	var plugin = self.myMusicPlugins[i];
+    var plugin = self.myMusicPlugins[i];
     plugin.active = false;
     plugin.enabled = self.config.get(plugin.category + '.' + plugin.name + '.enabled');
     if (self.config.get(plugin.category + '.' + plugin.name + '.status') === 'STARTED') {

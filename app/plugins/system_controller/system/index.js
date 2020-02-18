@@ -455,7 +455,7 @@ ControllerSystem.prototype.sendBugReport = function (message) {
     if (i < (n - 1)) description = description + "\\'";
   }
 
-  exec('/usr/local/bin/node /volumio/logsubmit.js ' + description, {uid: 1000, gid: 1000}, function (error, stdout, stderr) {
+  exec('/usr/bin/node /volumio/logsubmit.js ' + description, {uid: 1000, gid: 1000}, function (error, stdout, stderr) {
     if (error !== null) {
       self.logger.info('Cannot send bug report: ' + error);
     } else {
@@ -1029,8 +1029,12 @@ ControllerSystem.prototype.savePrivacySettings = function (data) {
   var self = this;
   var defer = libQ.defer();
 
+<<<<<<< HEAD
   if (data && data.allow_ui_statistics !== undefined) {
     self.config.set('allow_ui_statistics', data.allow_ui_statistics);
   }
   return self.commandRouter.reloadUi();
+=======
+    return crypto.createHash('md5').update(anonid).digest("hex");
+>>>>>>> 8c0c4307... Fix legacy node paths
 };
